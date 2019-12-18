@@ -40,12 +40,7 @@ const REDIRECT_URI = `http://localhost:${PORT}/oauth-callback`;
 
 //===========================================================================//
 
-// Use a session to keep track of client ID
-app.use(session({
-  secret: Math.random().toString(36).substring(2),
-  resave: false,
-  saveUninitialized: true
-}));
+
  
 //================================//
 //   Running the OAuth 2.0 Flow   //
@@ -98,7 +93,7 @@ app.get('/oauth-callback', async (req, res) => {
     // Step 4
     // Exchange the authorization code for an access token and refresh token
     console.log('===> Step 4: Exchanging authorization code for an access token and refresh token');
-    const token = await exchangeForTokens(req.sessionID, authCodeProof);
+    const token = await exchangeForTokens(authCodeProof);
     if (token.message) {
       return res.redirect(`/error?msg=${token.message}`);
     }
@@ -109,22 +104,53 @@ app.get('/oauth-callback', async (req, res) => {
   }
 });
 
+app.get('/webhook', async (req, res) => {
+
+  console.log('Recieved webhook for hub id');
+
+  // make a request
+  const hubId = req.query.hub_id;
+
+  let accessToken = await getAccessToken(hubId);
+
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  };
+
+  const contactsBody = await request.get('https://api.hubapi.com/contacts/v1/lists/all/contacts/all', {
+    headers: headers
+  });
+
+  let json = JSON.parse(contactsBody);
+
+
+  console.log(json);
+
+});
+
 //==========================================//
 //   Exchanging Proof for an Access Token   //
 //==========================================//
 
-const exchangeForTokens = async (userId, exchangeProof) => {
+const exchangeForTokens = async (exchangeProof) => {
   try {
     const responseBody = await request.post('https://api.hubapi.com/oauth/v1/token', {
       form: exchangeProof
     });
+
     // Usually, this token data should be persisted in a database and associated with
     // a user identity.
     const tokens = JSON.parse(responseBody);
-    refreshTokenStore[userId] = tokens.refresh_token;
-    accessTokenCache.set(userId, tokens.access_token, Math.round(tokens.expires_in * 0.75));
 
-    console.log('       > Received an access token and refresh token');
+    const responseBodyInfo = await request.get('https://api.hubapi.com/oauth/v1/access-tokens/' + tokens.access_token);
+    const tokenInfo = JSON.parse(responseBodyInfo);
+
+
+    refreshTokenStore[tokenInfo.hub_id] = tokens.refresh_token;
+    accessTokenCache.set(tokenInfo.hub_id, tokens.access_token, Math.round(tokens.expires_in * 0.75));
+
+    console.log('       > Received an access token and refresh token for hub id: ' + tokenInfo.hub_id);
     return tokens.access_token;
   } catch (e) {
     console.error(`       > Error exchanging ${exchangeProof.grant_type} for access token`);
@@ -132,29 +158,30 @@ const exchangeForTokens = async (userId, exchangeProof) => {
   }
 };
 
-const refreshAccessToken = async (userId) => {
+const refreshAccessToken = async (hubId) => {
   const refreshTokenProof = {
     grant_type: 'refresh_token',
     client_id: CLIENT_ID,
     client_secret: CLIENT_SECRET,
     redirect_uri: REDIRECT_URI,
-    refresh_token: refreshTokenStore[userId]
+    refresh_token: refreshTokenStore[hubId]
   };
-  return await exchangeForTokens(userId, refreshTokenProof);
+  return await exchangeForTokens(refreshTokenProof);
 };
 
-const getAccessToken = async (userId) => {
+
+const getAccessToken = async (hubId) => {
   // If the access token has expired, retrieve
   // a new one using the refresh token
-  if (!accessTokenCache.get(userId)) {
+  if (!accessTokenCache.get(hubId)) {
     console.log('Refreshing expired access token');
-    await refreshAccessToken(userId);
+    await refreshAccessToken(hubId);
   }
-  return accessTokenCache.get(userId);
+  return accessTokenCache.get(hubId);
 };
 
-const isAuthorized = (userId) => {
-  return refreshTokenStore[userId] ? true : false;
+const isAuthorized = (hubId) => {
+  return refreshTokenStore[hubId] ? true : false;
 };
 
 //====================================================//
