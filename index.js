@@ -104,7 +104,7 @@ app.get('/oauth-callback', async (req, res) => {
   }
 });
 
-app.get('/webhook', async (req, res) => {
+app.get('/test-api', async (req, res) => {
 
   console.log('Recieved webhook for hub id');
 
@@ -127,7 +127,28 @@ app.get('/webhook', async (req, res) => {
 
   console.log(json);
 
+
+  res.send('OK');
+
 });
+
+
+app.get('/test-api-refresh', async (req, res) => {
+
+  console.log('Recieved webhook for hub id');
+
+  // make a request
+  const hubId = req.query.hub_id;
+
+  accessTokenCache.del(hubId);
+
+  console.log('deleted token');
+
+  res.send('deleted');
+
+
+});
+
 
 //==========================================//
 //   Exchanging Proof for an Access Token   //
@@ -146,6 +167,7 @@ const exchangeForTokens = async (exchangeProof) => {
     const responseBodyInfo = await request.get('https://api.hubapi.com/oauth/v1/access-tokens/' + tokens.access_token);
     const tokenInfo = JSON.parse(responseBodyInfo);
 
+    console.log(tokens);
 
     refreshTokenStore[tokenInfo.hub_id] = tokens.refresh_token;
     accessTokenCache.set(tokenInfo.hub_id, tokens.access_token, Math.round(tokens.expires_in * 0.75));
